@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.runatlas",
+      "sha256_cert_fingerprints": [
+        "2D:8C:79:3D:64:42:66:0B:77:FA:A1:8A:0B:D1:DF:B5:00:CE:25:DA:4E:42:69:89:90:87:E7:33:91:C7:3F:D9"
+      ]
+    }
+  }
+]
