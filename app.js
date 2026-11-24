@@ -27,14 +27,27 @@ function localLinks(p,items,failed){
 }
 function show(i){overlay.clearLayers();const o=options[i];L.polyline(o.points,{color:'#fff',weight:9}).addTo(overlay);const line=L.polyline(o.points,{color:'#247849',weight:5}).addTo(overlay);map.fitBounds(line.getBounds(),{padding:[25,25],maxZoom:17});
  if(searchShape==='back')L.circleMarker(o.points[(o.points.length-1)/2],{radius:6,color:'#754918',fillColor:'#ffc479',fillOpacity:1}).bindTooltip('Turnaround').addTo(overlay);marker.bringToFront();Array.from($('routes').children).forEach((n,j)=>{n.classList.toggle('active',i===j);n.firstChild.setAttribute('aria-pressed',String(i===j))})}
-function routeFile(points,index){
+function routeTitle(o,i){return o.name||(fmt(o.distance)+(searchShape==='back'?' out & back':' loop'))}
+function xmlText(t){return String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function routeFile(points,index,title){
  const track=points.map(([lat,lon])=>'<trkpt lat="'+lat+'" lon="'+lon+'"/>').join('');
- const gpx='<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Run Atlas" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>Run Atlas</name><trkseg>'+track+'</trkseg></trk></gpx>';
+ const name=xmlText('Run Atlas · '+(title||'Route '+(index+1)));
+ const gpx='<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Run Atlas" xmlns="http://www.topografix.com/GPX/1/1"><metadata><name>'+name+'</name></metadata><trk><name>'+name+'</name><trkseg>'+track+'</trkseg></trk></gpx>';
  return new File([gpx],'run-atlas-'+(index+1)+'.gpx',{type:'application/gpx+xml'});
 }
+// Google encoded polyline (5 decimals), dropping points under 3 m apart, so the whole route fits in a link
+function encodePoly(points){let out='',pa=0,po=0,last=null;const put=v=>{v=v<0?~(v<<1):v<<1;while(v>=32){out+=String.fromCharCode((32|(v&31))+63);v>>=5}out+=String.fromCharCode(v+63)};
+ points.forEach(([lat,lon],k)=>{if(last&&k<points.length-1&&Math.hypot((lat-last[0])*111195,(lon-last[1])*111195*Math.cos(lat*Math.PI/180))<3)return;last=[lat,lon];const a=Math.round(lat*1e5),o=Math.round(lon*1e5);put(a-pa);put(o-po);pa=a;po=o});return out}
+// Opens the route in Tripace Pro for turn-by-turn voice directions; without Tripace Pro (or an older one) Chrome opens its Play page instead
+function tripaceLink(points,title){
+ return 'intent://route?n='+encodeURIComponent('Run Atlas · '+title)+'&p='+encodeURIComponent(encodePoly(points))
+  +'#Intent;scheme=tripace;package=app.tripace;S.browser_fallback_url='+encodeURIComponent('https://play.google.com/store/apps/details?id=app.tripace')+';end';
+}
+const isAndroid=/Android/i.test(navigator.userAgent);
 function render(){const root=$('routes');root.replaceChildren();options.forEach((o,i)=>{const card=el('div');card.className='card';const b=el('button',fmt(o.distance)+' · '+(o.name||'Route '+(i+1)));b.onclick=()=>{show(i);$('map').scrollIntoView({behavior:'smooth',block:'center'})};card.append(b);
  const note=el('p');note.className='evidence';if(o.evidence){note.append('Passes within 75 m of ',link(o.evidence.name,o.evidence.url))}else note.textContent='Pedestrian route · running activity unverified';card.append(note);card.append(el('p',o.crossings==null?'Mapped crossing estimate unavailable':'Nearby mapped crossing visits: '+o.crossings));
- const file=routeFile(o.points,i);
+ const title=routeTitle(o,i),file=routeFile(o.points,i,title);
+ if(isAndroid){const open=el('a','Open in Tripace Pro');open.className='tripace';open.href=tripaceLink(o.points,title);card.append(open)}
  const download=el('a','Download GPX');
  download.href='#';
  download.onclick=event=>{
