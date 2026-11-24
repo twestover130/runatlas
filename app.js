@@ -27,9 +27,40 @@ function localLinks(p,items,failed){
 }
 function show(i){overlay.clearLayers();const o=options[i];L.polyline(o.points,{color:'#fff',weight:9}).addTo(overlay);const line=L.polyline(o.points,{color:'#247849',weight:5}).addTo(overlay);map.fitBounds(line.getBounds(),{padding:[25,25],maxZoom:17});
  if(searchShape==='back')L.circleMarker(o.points[(o.points.length-1)/2],{radius:6,color:'#754918',fillColor:'#ffc479',fillOpacity:1}).bindTooltip('Turnaround').addTo(overlay);marker.bringToFront();Array.from($('routes').children).forEach((n,j)=>{n.classList.toggle('active',i===j);n.firstChild.setAttribute('aria-pressed',String(i===j))})}
+function routeFile(points,index){
+ const track=points.map(([lat,lon])=>'<trkpt lat="'+lat+'" lon="'+lon+'"/>').join('');
+ const gpx='<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Run Atlas" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>Run Atlas</name><trkseg>'+track+'</trkseg></trk></gpx>';
+ return new File([gpx],'run-atlas-'+(index+1)+'.gpx',{type:'application/gpx+xml'});
+}
 function render(){const root=$('routes');root.replaceChildren();options.forEach((o,i)=>{const card=el('div');card.className='card';const b=el('button',fmt(o.distance)+' · '+(o.name||'Route '+(i+1)));b.onclick=()=>{show(i);$('map').scrollIntoView({behavior:'smooth',block:'center'})};card.append(b);
  const note=el('p');note.className='evidence';if(o.evidence){note.append('Passes within 75 m of ',link(o.evidence.name,o.evidence.url))}else note.textContent='Pedestrian route · running activity unverified';card.append(note);card.append(el('p',o.crossings==null?'Mapped crossing estimate unavailable':'Nearby mapped crossing visits: '+o.crossings));
- const a=el('a','Download GPX');a.href='#';a.onclick=e=>{e.preventDefault();const gpx='<?xml version="1.0"?><gpx version="1.1" creator="Run Atlas" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>Run Atlas</name><trkseg>'+o.points.map(p=>'<trkpt lat="'+p[0]+'" lon="'+p[1]+'"/>').join('')+'</trkseg></trk></gpx>';const url=URL.createObjectURL(new Blob([gpx],{type:'application/gpx+xml'}));const dl=el('a');dl.href=url;dl.download='run-atlas-'+(i+1)+'.gpx';dl.click();setTimeout(()=>URL.revokeObjectURL(url),5000)};card.append(a);root.append(card)});if(options.length)show(0)}
+ const file=routeFile(o.points,i);
+ const download=el('a','Download GPX');
+ download.href='#';
+ download.onclick=event=>{
+  event.preventDefault();
+  const url=URL.createObjectURL(file);
+  const link=el('a');
+  link.href=url;
+  link.download=file.name;
+  link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),5000);
+ };
+ if(navigator.share){
+  const share=el('button','Share GPX');
+  share.type='button';
+  share.onclick=async()=>{
+   const payload={files:[file]};
+   const fallback='Use Download GPX, then open the file in Tripace Pro.';
+   try{
+    if(navigator.canShare && !navigator.canShare(payload)){ $('status').textContent=fallback; return; }
+    await navigator.share(payload);
+   }catch(error){if(error.name!=='AbortError')$('status').textContent=fallback}
+  };
+  card.append(share);
+ }
+ card.append(download);
+ root.append(card)});if(options.length)show(0)}
 $('planner').onsubmit=async e=>{e.preventDefault();if(!start){$('chosen').textContent='Use GPS, search for a place, or tap Pick on map first.';return}
  clearResults();const id=run,p=start.slice();unit=$('unit').value;const target=+$('distance').value*(unit==='mi'?1609.344:1000);
  if(target<500||target>42200){$('status').textContent='Choose a distance from 0.5 to 42 km (0.32 to 26.2 mi).';return}
