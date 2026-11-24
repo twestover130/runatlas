@@ -28,8 +28,42 @@ async function courses(p,target){
 }
 function decode(s){let i=0,lat=0,lon=0,out=[];function part(){let n=0,shift=0,b;do{b=s.charCodeAt(i++)-63;n|=(b&31)<<shift;shift+=5}while(b>=32);return n&1?~(n>>1):n>>1}
  while(i<s.length){lat+=part();lon+=part();out.push([lat/1e6,lon/1e6])}return out}
+async function mappedCrossings(start,target){
+ const radius=Math.min(7000,Math.ceil(target/2+350));
+ const query='[out:json][timeout:10];node["highway"="crossing"](around:'+radius+','+start.join(',')+');out body;';
+ const data=await json('https://overpass-api.de/api/interpreter?data='+encodeURIComponent(query),13000);
+ if(data.remark||!Array.isArray(data.elements))throw Error('Incomplete crossing data');
+ const rows=new Map();
+ for(const node of data.elements){
+  const row=Math.floor(node.lat*1000);
+  if(!rows.has(row))rows.set(row,[]);
+  rows.get(row).push(node);
+ }
+ return {start,radius,rows};
+}
+function crossingVisits(points,index){
+ if(!index||points.some(p=>meters(p,index.start)>index.radius-10))return null;
+ const lastVisit=new Map();let travelled=0,count=0;
+ for(let i=1;i<points.length;i++){
+  const a=points[i-1],b=points[i];
+  const east=111195*Math.cos(a[0]*rad),dx=(b[1]-a[1])*east,dy=(b[0]-a[0])*111195;
+  if(dx===0&&dy===0)continue;
+  const first=Math.floor((Math.min(a[0],b[0])-.00008)*1000);
+  const last=Math.floor((Math.max(a[0],b[0])+.00008)*1000);
+  for(let row=first;row<=last;row++)for(const n of index.rows.get(row)||[]){
+   const x=(n.lon-a[1])*east,y=(n.lat-a[0])*111195;
+   const t=Math.max(0,Math.min(1,(x*dx+y*dy)/(dx*dx+dy*dy)));
+   if(Math.hypot(x-t*dx,y-t*dy)>8)continue;
+   const position=travelled+t*Math.hypot(dx,dy);
+   if(position-(lastVisit.get(n.id)??-Infinity)>18)count++;
+   lastVisit.set(n.id,position);
+  }
+  travelled+=Math.hypot(dx,dy);
+ }
+ return count;
+}
 async function walk(points){
- const q={locations:points.map(([lat,lon])=>({lat,lon,radius:80})),costing:'pedestrian',units:'kilometers',costing_options:{pedestrian:{walkway_factor:0.8,sidewalk_factor:0.85}},language:'en-US'};
+ const q={locations:points.map(([lat,lon])=>({lat,lon,radius:80})),costing:'pedestrian',units:'kilometers',costing_options:{pedestrian:{walkway_factor:0.4,sidewalk_factor:0.9}},language:'en-US'};
  const r=await json('https://valhalla1.openstreetmap.de/route?json='+encodeURIComponent(JSON.stringify(q)));
  const legs=r.trip?.legs;if(!legs?.length)throw Error('No path');
  const lines=legs.map(l=>decode(l.shape));if(lines.some(a=>a.length<2)||meters(points[0],lines[0][0])>100)return null;

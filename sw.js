@@ -1,5 +1,5 @@
 
-const cacheName = "run-atlas-9f3b44245a55acdb0a85";
+const cacheName = "run-atlas-8aaaaa06719af9bc79e9";
 const assets = ["app.js", "engine.js", "events.json", "icon192.png", "icon512.png", "index.html", "manifest.webmanifest", "privacy.html", "style.css", "vendor/copyright", "vendor/leaflet.css", "vendor/leaflet.js"];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(cacheName).then(cache =>
