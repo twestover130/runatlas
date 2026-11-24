@@ -16,6 +16,38 @@ function cells(points){
  for(let j=0;j<steps;j++){const p=a.map((v,k)=>v+(b[k]-v)*j/steps);s.add(p.map(v=>Math.round(v*2500)).join(','))}}return s;
 }
 async function json(url,ms=12000){const c=new AbortController(),t=setTimeout(()=>c.abort(),ms);try{const r=await fetch(url,{signal:c.signal});if(!r.ok)throw Error(String(r.status));return await r.json()}finally{clearTimeout(t)}}
+function mappedRunningLine(relation){
+ if(relation.tags?.route!=='running'||!relation.members)return null;
+ const ways=relation.members.filter(member=>member.type!=='node');
+ if(!ways.length||ways.some(m=>m.type!=='way'||!['','forward','backward'].includes(m.role)||!m.geometry||m.geometry.length<2))return null;
+ const segments=ways.map(m=>m.geometry.map(p=>[p?.lat,p?.lon]));
+ if(segments.some(s=>s.some(p=>!p.every(Number.isFinite))))return null;
+ const same=(a,b)=>a[0]===b[0]&&a[1]===b[1];
+ function assemble(reverseFirst){
+  let line=[];
+  for(let i=0;i<ways.length;i++){
+   const s=segments[i],role=ways[i].role,last=line[line.length-1];
+   const reverse=role==='backward'||(!role&&(i===0?reverseFirst:same(last,s[s.length-1])));
+   const ordered=reverse?s.slice().reverse():s;
+   if(i&&!same(last,ordered[0]))return null;
+   for(let j=i?1:0;j<ordered.length;j++)line.push(ordered[j]);
+  }
+  return line;
+ }
+ return assemble(false)||assemble(true);
+}
+function nearbyCourses(start,target,entries,crossings){
+ const matches=[];
+ for(const entry of entries){
+  if(!entry.line?.length)continue;
+  const fromStart=meters(start,entry.line[0]);
+  if(fromStart>10000)continue;
+  const distance=lengthOf(entry.line);
+  if(Math.abs(distance-target)>target*.35)continue;
+  matches.push({...entry,points:entry.line,fromStart,distance,crossings:crossingVisits(entry.line,crossings)});
+ }
+ return matches.sort((a,b)=>(a.crossings??Infinity)-(b.crossings??Infinity)||Math.abs(a.distance-target)-Math.abs(b.distance-target)||a.fromStart-b.fromStart).slice(0,3);
+}
 async function courses(p,target){
  const around='(around:'+Math.round(Math.min(7000,target/2+350))+','+p.join(',')+')';
  const query='[out:json][timeout:9];(relation["route"="running"]'+around+';nwr["sport"~"athletics|running"]["leisure"="track"]["access"!~"private|no"]'+around+';);out geom 60;';
@@ -23,7 +55,7 @@ async function courses(p,target){
  return data.elements.map(e=>{const raw=e.geometry||e.members?.flatMap(m=>m.geometry||[])||(e.lat!=null?[e]:[]);
  const points=raw.filter(Boolean).map(v=>[v.lat,v.lon]).filter(v=>v.every(Number.isFinite));
  const closest=points.reduce((a,b)=>!a||meters(p,b)<meters(p,a)?b:a,null);
- return {closest,points,name:e.tags?.name||(e.type==='relation'?'Mapped running course':'Athletics track'),url:'https://www.openstreetmap.org/'+e.type+'/'+e.id}
+ return {closest,points,line:mappedRunningLine(e),kind:'Community-mapped running course',credit:'OpenStreetMap contributors',name:e.tags?.name||(e.type==='relation'?'Mapped running course':'Athletics track'),url:'https://www.openstreetmap.org/'+e.type+'/'+e.id}
  }).filter(e=>e.closest).sort((a,b)=>meters(p,a.closest)-meters(p,b.closest));
 }
 function decode(s){let i=0,lat=0,lon=0,out=[];function part(){let n=0,shift=0,b;do{b=s.charCodeAt(i++)-63;n|=(b&31)<<shift;shift+=5}while(b>=32);return n&1?~(n>>1):n>>1}

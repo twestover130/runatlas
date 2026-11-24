@@ -26,7 +26,7 @@ function localLinks(p,items,failed){
  block.append(link('Strava heatmap','https://www.strava.com/maps/global-heatmap?sport=Run#14/'+p[0]+'/'+p[1]),link('Nearby running clubs','https://www.google.com/maps/search/running+club/@'+p.join(',')+',14z'));
 }
 function show(i){overlay.clearLayers();const o=options[i];L.polyline(o.points,{color:'#fff',weight:9}).addTo(overlay);const line=L.polyline(o.points,{color:'#247849',weight:5}).addTo(overlay);map.fitBounds(line.getBounds(),{padding:[25,25],maxZoom:17});
- if(searchShape==='back')L.circleMarker(o.points[(o.points.length-1)/2],{radius:6,color:'#754918',fillColor:'#ffc479',fillOpacity:1}).bindTooltip('Turnaround').addTo(overlay);marker.bringToFront();Array.from($('routes').children).forEach((n,j)=>{n.classList.toggle('active',i===j);n.firstChild.setAttribute('aria-pressed',String(i===j))})}
+ if(o.kind)L.circleMarker(o.points[0],{radius:6,color:'#247849'}).bindTooltip('Course start').addTo(overlay);else if(searchShape==='back')L.circleMarker(o.points[(o.points.length-1)/2],{radius:6,color:'#754918',fillColor:'#ffc479',fillOpacity:1}).bindTooltip('Turnaround').addTo(overlay);marker.bringToFront();Array.from($('routes').children).forEach((n,j)=>{n.classList.toggle('active',i===j);n.firstChild.setAttribute('aria-pressed',String(i===j))})}
 function routeTitle(o,i){return o.name||(fmt(o.distance)+(searchShape==='back'?' out & back':' loop'))}
 function xmlText(t){return String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function routeFile(points,index,title){
@@ -45,9 +45,9 @@ function tripaceLink(points,title){
 }
 const isAndroid=/Android/i.test(navigator.userAgent);
 function render(){const root=$('routes');root.replaceChildren();options.forEach((o,i)=>{const card=el('div');card.className='card';const b=el('button',fmt(o.distance)+' · '+(o.name||'Route '+(i+1)));b.onclick=()=>{show(i);$('map').scrollIntoView({behavior:'smooth',block:'center'})};card.append(b);
- const note=el('p');note.className='evidence';if(o.evidence){note.append('Passes within 75 m of ',link(o.evidence.name,o.evidence.url))}else note.textContent='Pedestrian route · running activity unverified';card.append(note);card.append(el('p',o.crossings==null?'Mapped crossing estimate unavailable':'Nearby mapped crossing visits: '+o.crossings));
+ const note=el('p');note.className='evidence';if(o.kind){note.append(o.kind+' · starts '+fmt(o.fromStart)+' away · ',link(o.credit,o.url));}else if(o.evidence){note.append('Passes within 75 m of ',link(o.evidence.name,o.evidence.url))}else note.textContent='Pedestrian route · running activity unverified';card.append(note);card.append(el('p',o.crossings==null?'Mapped crossing estimate unavailable':'Nearby mapped crossing visits: '+o.crossings));
  const title=routeTitle(o,i),file=routeFile(o.points,i,title);
- if(isAndroid){const open=el('a','Open in Tripace Pro');open.className='tripace';open.href=tripaceLink(o.points,title);card.append(open)}
+ if(isAndroid && tripaceLink(o.points,title).length<12000){const open=el('a','Open in Tripace Pro');open.className='tripace';open.href=tripaceLink(o.points,title);card.append(open)}
  const download=el('a','Download GPX');
  download.href='#';
  download.onclick=event=>{
@@ -78,7 +78,8 @@ $('planner').onsubmit=async e=>{e.preventDefault();if(!start){$('chosen').textCo
  clearResults();const id=run,p=start.slice();unit=$('unit').value;const target=+$('distance').value*(unit==='mi'?1609.344:1000);
  if(target<500||target>42200){$('status').textContent='Choose a distance from 0.5 to 42 km (0.32 to 26.2 mi).';return}
  searchShape=document.querySelector('[name=shape]:checked').value;busy=true;$('find').disabled=true;$('status').textContent='Looking for nearby running courses and tracks…';$('status').scrollIntoView({behavior:'smooth',block:'center'});
- const [mapped,events,crossings]=await Promise.allSettled([courses(p,target),json('./events.json'),mappedCrossings(p,target)]);
+ const races=p[0]>24&&p[0]<47&&p[1]>122&&p[1]<147?json('./race-courses.json'):[];
+ const [mapped,events,crossings,catalog]=await Promise.allSettled([courses(p,target),json('./events.json'),mappedCrossings(p,target),races]);
  const failed=mapped.status==='rejected';
  const items=mapped.status==='fulfilled'?mapped.value:[];
  if(events.status==='fulfilled')for(const [name,lat,lon,url] of events.value){
@@ -87,11 +88,15 @@ $('planner').onsubmit=async e=>{e.preventDefault();if(!start){$('chosen').textCo
  items.sort((a,b)=>meters(p,a.closest)-meters(p,b.closest));if(id!==run)return;localLinks(p,items,failed);
  const anchor=items.find(x=>meters(p,x.closest)>100&&meters(p,x.closest)<target*.6)?.closest;
  const initial=anchor?Math.atan2((anchor[1]-p[1])*Math.cos(p[0]*rad),anchor[0]-p[0]):Math.PI/5;
+ const recorded=(catalog.value||[]).map(r=>({name:r.name,line:r.points,url:r.source,credit:'kekomat · CC0 GPX',kind:'Recorded race track'}));
+ const community=nearbyCourses(p,target,items.concat(recorded),crossings.value);
+ if(community.length){options=community;render();$('status').textContent='Showing nearby courses.'}
+ const generated=[];
  let scale=1,errors=0;
  for(let k=0;k<7;k++){if(id!==run)return;$('status').textContent='Checking pedestrian paths · '+options.length+' found';try{
  const o=await candidate(p,target,searchShape,initial+k*2.4,scale,items);if(id!==run)return;if(o){scale=Math.max(.55,Math.min(1.8,scale*target/o.distance));const near=Math.abs(o.distance-target)/target<=.22;
- if(near){o.crossings=crossingVisits(o.points,crossings.value);options.push(o)}}}catch{errors++;if(errors>=3)break}if(k<6)await new Promise(resolve=>setTimeout(resolve,1100))}
- if(id!==run)return;options.sort((a,b)=>(a.crossings??Infinity)-(b.crossings??Infinity)||Number(!!b.evidence)-Number(!!a.evidence)||Math.abs(a.distance-target)-Math.abs(b.distance-target));const best=[];for(const route of options){if(best.every(other=>{let shared=0;for(const c of route.cells)if(other.cells.has(c))shared++;return shared/Math.min(route.cells.size,other.cells.size)<.72}))best.push(route);if(best.length===3)break}options=best;render();busy=false;$('find').disabled=false;
- $('status').textContent=options.length?options.length+' option'+(options.length===1?'':'s')+' near '+fmt(target)+'. Review crossings, lighting and current access before running.':errors>=3?'Pedestrian routing service unavailable. Retry in a moment.':'No distinct routes within 22% of your distance. Try another start, distance or shape.'};
+ if(near){o.crossings=crossingVisits(o.points,crossings.value);generated.push(o)}}}catch{errors++;if(errors>=3)break}if(k<6)await new Promise(resolve=>setTimeout(resolve,1100))}
+ if(id!==run)return;generated.sort((a,b)=>(a.crossings??Infinity)-(b.crossings??Infinity)||Number(!!b.evidence)-Number(!!a.evidence)||Math.abs(a.distance-target)-Math.abs(b.distance-target));const best=[];for(const route of generated){if(best.every(other=>{let shared=0;for(const c of route.cells)if(other.cells.has(c))shared++;return shared/Math.min(route.cells.size,other.cells.size)<.72}))best.push(route);if(best.length===3)break}options=community.concat(best);render();busy=false;$('find').disabled=false;
+ $('status').textContent=options.length?options.length+' option'+(options.length===1?'':'s')+' near '+fmt(target)+'. Check current access and crossings. Race-day road closures may no longer apply.':errors>=3?'Pedestrian routing service unavailable. Retry in a moment.':'No distinct routes within 22% of your distance. Try another start, distance or shape.'};
 for(const n of document.querySelectorAll('#distance,#unit,[name=shape]'))n.addEventListener('input',clearResults);
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
