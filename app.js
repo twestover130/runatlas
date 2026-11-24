@@ -5,11 +5,11 @@ let start=null,marker=null,picking=false,run=0,locationRequest=0,options=[],unit
 function el(tag,txt){const n=document.createElement(tag);if(txt)n.textContent=txt;return n}
 function link(label,url){const a=el('a',label);a.href=url;a.target='_blank';a.rel='noopener noreferrer';return a}
 function clearResults(){run++;busy=false;$('find').disabled=false;options=[];overlay.clearLayers();$('routes').replaceChildren();$('sources').replaceChildren();$('status').textContent='Set your starting point and distance to see routes here.'}
-function choose(p,label){clearResults();locationRequest++;start=p;picking=false;$('chosen').textContent=label+' · '+p.map(n=>n.toFixed(4)).join(', ');$('places').replaceChildren();$('mapstate').textContent='Start selected';map.setView(p,15);if(marker)marker.remove();marker=L.circleMarker(p,{radius:7,color:'#163a31',fillColor:'#fac47c',weight:3,fillOpacity:1}).bindTooltip('Start / finish').addTo(map)}
+function choose(p,label){clearResults();locationRequest++;start=p;picking=false;$('chosen').textContent=label;$('places').replaceChildren();$('mapstate').textContent='Start selected';map.setView(p,15);if(marker)marker.remove();marker=L.circleMarker(p,{radius:7,color:'#163a31',fillColor:'#fac47c',weight:3,fillOpacity:1}).bindTooltip('Start / finish').addTo(map)}
 $('pick').onclick=()=>{picking=true;$('mapstate').textContent='Tap your starting point';$('map').scrollIntoView({behavior:'smooth',block:'center'})};
 map.on('click',e=>{if(picking)choose([e.latlng.lat,e.latlng.wrap().lng],'Pinned start')});
-$('gps').onclick=()=>{const id=++locationRequest;$('chosen').textContent='Locating you…';if(!navigator.geolocation){$('chosen').textContent='Location unavailable. Search or pick on map.';return}
- navigator.geolocation.getCurrentPosition(p=>{if(id===locationRequest)choose([p.coords.latitude,p.coords.longitude],'Current location')},()=>{if(id===locationRequest)$('chosen').textContent='Location unavailable. Search or pick on map.'},{enableHighAccuracy:true,timeout:15000,maximumAge:30000})};
+$('gps').onclick=()=>{const id=++locationRequest;$('chosen').textContent='Locating you…';if(!navigator.geolocation){$('chosen').textContent='Location unavailable. Enter a street address or pick on map.';return}
+ navigator.geolocation.getCurrentPosition(p=>{if(id===locationRequest)choose([p.coords.latitude,p.coords.longitude],'Current location')},()=>{if(id===locationRequest)$('chosen').textContent='Location unavailable. Enter a street address or pick on map.'},{enableHighAccuracy:true,timeout:15000,maximumAge:30000})};
 $('lookup').onclick=async()=>{const q=$('place').value.trim();if(!q)return $('place').focus();
  const coords=q.match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
  if(coords&&Math.abs(+coords[1])<=85&&Math.abs(+coords[2])<=180){choose([+coords[1],+coords[2]],'Coordinate start');return}
@@ -29,10 +29,10 @@ function show(i){overlay.clearLayers();const o=options[i];L.polyline(o.points,{c
  if(o.kind)L.circleMarker(o.points[0],{radius:6,color:'#247849'}).bindTooltip('Course start').addTo(overlay);else if(searchShape==='back')L.circleMarker(o.points[(o.points.length-1)/2],{radius:6,color:'#754918',fillColor:'#ffc479',fillOpacity:1}).bindTooltip('Turnaround').addTo(overlay);marker.bringToFront();Array.from($('routes').children).forEach((n,j)=>{n.classList.toggle('active',i===j);n.firstChild.setAttribute('aria-pressed',String(i===j))})}
 function routeTitle(o,i){return o.name||(fmt(o.distance)+(searchShape==='back'?' out & back':' loop'))}
 function xmlText(t){return String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
-function routeFile(points,index,title){
+function routeFile(points,index,title,credit=''){
  const track=points.map(([lat,lon])=>'<trkpt lat="'+lat+'" lon="'+lon+'"/>').join('');
  const name=xmlText('Run Atlas · '+(title||'Route '+(index+1)));
- const gpx='<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Run Atlas" xmlns="http://www.topografix.com/GPX/1/1"><metadata><name>'+name+'</name></metadata><trk><name>'+name+'</name><trkseg>'+track+'</trkseg></trk></gpx>';
+ const gpx='<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Run Atlas" xmlns="http://www.topografix.com/GPX/1/1"><metadata><name>'+name+'</name>'+ (credit?'<desc>'+xmlText(credit)+'</desc>':'')+'</metadata><trk><name>'+name+'</name><trkseg>'+track+'</trkseg></trk></gpx>';
  return new File([gpx],'run-atlas-'+(index+1)+'.gpx',{type:'application/gpx+xml'});
 }
 // Google encoded polyline (5 decimals), dropping points under 3 m apart, so the whole route fits in a link
@@ -46,7 +46,7 @@ function tripaceLink(points,title){
 const isAndroid=/Android/i.test(navigator.userAgent);
 function render(){const root=$('routes');root.replaceChildren();options.forEach((o,i)=>{const card=el('div');card.className='card';const b=el('button',fmt(o.distance)+' · '+(o.name||'Route '+(i+1)));b.onclick=()=>{show(i);$('map').scrollIntoView({behavior:'smooth',block:'center'})};card.append(b);
  const note=el('p');note.className='evidence';if(o.kind){note.append(o.kind+' · starts '+fmt(o.fromStart)+' away · ',link(o.credit,o.url));}else if(o.evidence){note.append('Passes within 75 m of ',link(o.evidence.name,o.evidence.url))}else note.textContent='Pedestrian route · running activity unverified';card.append(note);card.append(el('p',o.crossings==null?'Mapped crossing estimate unavailable':'Nearby mapped crossing visits: '+o.crossings));
- const title=routeTitle(o,i),file=routeFile(o.points,i,title);
+ const title=routeTitle(o,i),file=routeFile(o.points,i,title,o.credit);
  if(isAndroid && tripaceLink(o.points,title).length<12000){const open=el('a','Open in Tripace Pro');open.className='tripace';open.href=tripaceLink(o.points,title);card.append(open)}
  const download=el('a','Download GPX');
  download.href='#';
@@ -79,7 +79,7 @@ $('planner').onsubmit=async e=>{e.preventDefault();if(!start){$('chosen').textCo
  if(target<500||target>42200){$('status').textContent='Choose a distance from 0.5 to 42 km (0.32 to 26.2 mi).';return}
  searchShape=document.querySelector('[name=shape]:checked').value;busy=true;$('find').disabled=true;$('status').textContent='Looking for nearby running courses and tracks…';$('status').scrollIntoView({behavior:'smooth',block:'center'});
  const races=p[0]>24&&p[0]<47&&p[1]>122&&p[1]<147?json('./race-courses.json'):[];
- const [mapped,events,crossings,catalog]=await Promise.allSettled([courses(p,target),json('./events.json'),mappedCrossings(p,target),races]);
+ const [mapped,events,crossings,catalog,parkruns]=await Promise.allSettled([courses(p,target),json('./events.json'),mappedCrossings(p,target),races,target>=3500&&target<=8100?json('./parkrun-courses.json'):null]);
  const failed=mapped.status==='rejected';
  const items=mapped.status==='fulfilled'?mapped.value:[];
  if(events.status==='fulfilled')for(const [name,lat,lon,url] of events.value){
@@ -89,7 +89,7 @@ $('planner').onsubmit=async e=>{e.preventDefault();if(!start){$('chosen').textCo
  const anchor=items.find(x=>meters(p,x.closest)>100&&meters(p,x.closest)<target*.6)?.closest;
  const initial=anchor?Math.atan2((anchor[1]-p[1])*Math.cos(p[0]*rad),anchor[0]-p[0]):Math.PI/5;
  const recorded=(catalog.value||[]).map(r=>({name:r.name,line:r.points,url:r.source,credit:'kekomat · CC0 GPX',kind:'Recorded race track'}));
- const community=nearbyCourses(p,target,items.concat(recorded),crossings.value);
+ const community=nearbyCourses(p,target,(parkruns.value?.routes||[]).map(r=>({...r,line:r.points,credit:'© OpenStreetMap contributors · ODbL'})).concat(items,recorded),crossings.value);
  if(community.length){options=community;render();$('status').textContent='Showing nearby courses.'}
  const generated=[];
  let scale=1,errors=0;

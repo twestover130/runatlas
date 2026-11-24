@@ -44,6 +44,7 @@ function nearbyCourses(start,target,entries,crossings){
   if(fromStart>10000)continue;
   const distance=lengthOf(entry.line);
   if(Math.abs(distance-target)>target*.35)continue;
+  if(matches.some(m=>m.name===entry.name&&meters(m.points[0],entry.line[0])<250))continue;
   matches.push({...entry,points:entry.line,fromStart,distance,crossings:crossingVisits(entry.line,crossings)});
  }
  return matches.sort((a,b)=>(a.crossings??Infinity)-(b.crossings??Infinity)||Math.abs(a.distance-target)-Math.abs(b.distance-target)||a.fromStart-b.fromStart).slice(0,3);

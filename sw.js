@@ -1,6 +1,6 @@
 
-const cacheName = "run-atlas-a1256b5a5923e432b327";
-const assets = ["app.js", "engine.js", "events.json", "icon192.png", "icon512.png", "index.html", "manifest.webmanifest", "privacy.html", "race-courses.json", "style.css", "vendor/copyright", "vendor/leaflet.css", "vendor/leaflet.js"];
+const cacheName = "run-atlas-d6f033371ac79ec3ceaf";
+const assets = ["app.js", "engine.js", "events.json", "icon192.png", "icon512.png", "index.html", "manifest.webmanifest", "parkrun-courses.json", "privacy.html", "race-courses.json", "style.css", "vendor/copyright", "vendor/leaflet.css", "vendor/leaflet.js"];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(cacheName).then(cache =>
     cache.addAll(assets.map(path => new Request(path, {cache: 'reload'})))
