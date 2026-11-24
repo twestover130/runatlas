@@ -10,13 +10,14 @@ $('pick').onclick=()=>{picking=true;$('mapstate').textContent='Tap your starting
 map.on('click',e=>{if(picking)choose([e.latlng.lat,e.latlng.wrap().lng],'Pinned start')});
 $('gps').onclick=()=>{const id=++locationRequest;$('chosen').textContent='Locating you…';if(!navigator.geolocation){$('chosen').textContent='Location unavailable. Enter a street address or pick on map.';return}
  navigator.geolocation.getCurrentPosition(p=>{if(id===locationRequest)choose([p.coords.latitude,p.coords.longitude],'Current location')},()=>{if(id===locationRequest)$('chosen').textContent='Location unavailable. Enter a street address or pick on map.'},{enableHighAccuracy:true,timeout:15000,maximumAge:30000})};
-$('lookup').onclick=async()=>{const q=$('place').value.trim();if(!q)return $('place').focus();
+async function lookup(afterChoose){const q=$('place').value.trim();if(!q)return $('place').focus();
  const coords=q.match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
- if(coords&&Math.abs(+coords[1])<=85&&Math.abs(+coords[2])<=180){choose([+coords[1],+coords[2]],'Coordinate start');return}
+ if(coords&&Math.abs(+coords[1])<=85&&Math.abs(+coords[2])<=180){choose([+coords[1],+coords[2]],'Coordinate start');afterChoose?.();return}
  const id=++locationRequest;$('places').textContent='Searching…';
  try{const data=await json('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=4&q='+encodeURIComponent(q));if(id!==locationRequest)return;$('places').replaceChildren();
- for(const hit of data){const b=el('button',hit.display_name);b.type='button';b.onclick=()=>choose([+hit.lat,+hit.lon],hit.display_name.split(',')[0]);$('places').append(b)}
+ for(const hit of data){const b=el('button',hit.display_name);b.type='button';b.onclick=()=>{choose([+hit.lat,+hit.lon],hit.display_name);afterChoose?.()};$('places').append(b)}
  if(!data.length)$('places').textContent='No places found. Try a city or pick on map.'}catch{if(id===locationRequest)$('places').textContent='Place search unavailable. Use GPS or pick on map.'}};
+$('lookup').onclick=()=>lookup();
 $('place').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('lookup').click()}};
 function fmt(m){return (m/(unit==='mi'?1609.344:1000)).toFixed(2)+' '+unit}
 function localLinks(p,items,failed){
@@ -66,6 +67,72 @@ citySelect.onchange=()=>{
  $('routes').scrollIntoView({behavior:'smooth',block:'nearest'});
  citySelect.value='';
 };
+function parseRunRequest(text){
+ const distance=text.match(/\b(\d+(?:\.\d+)?)\s*[- ]?\s*(kilomet(?:er|re)s?|km|k|miles?|mi)\b/i);
+ const place=text.match(/\b(?:starting (?:at|from)|from|near)\s+(.+)$/i);
+ if(!distance)return null;
+ const unit=/^(k)/i.test(distance[2])?'km':'mi';
+ const value=Number(distance[1]);
+ const meters=value*(unit==='mi'?1609.344:1000);
+ if(meters<500||meters>42200)return null;
+ return {value,unit,shape:/out[\s-]*(?:and|&)[\s-]*back/i.test(text)?'back':'loop',place:place?.[1].trim()};
+}
+$('request-run').onsubmit=async event=>{
+ event.preventDefault();
+ const request=parseRunRequest($('run-request').value);
+ const status=$('request-status');
+ if(!request){status.textContent='Enter a distance between 0.5 and 42.2 km (or the equivalent in miles).';return}
+ clearResults();
+ $('distance').value=request.value;
+ $('unit').value=request.unit;
+ document.querySelector('[name=shape][value='+request.shape+']').checked=true;
+ const search=()=>{status.textContent='';$('planner').requestSubmit()};
+ if(request.place){
+  $('place').value=request.place;
+  status.textContent='Choose the matching starting address below to begin your search.';
+  await lookup(search);
+ }else if(start){search()}else{status.textContent='Select a starting point below, then tap Find running routes.'}
+};
+const savedKey='runatlas.saved.routes.v1';
+function readSaved(){return JSON.parse(localStorage.getItem(savedKey)||'[]')}
+function listSaved(){
+ const list=$('saved-list');list.replaceChildren();
+ try{
+  const records=readSaved();
+  if(!records.length)list.append(el('p','Routes you save on this device appear here.'));
+  for(const item of records){
+   const row=el('p'),open=el('button',item.route.name+' · '+(item.route.distance/1000).toFixed(1)+' km'),remove=el('button','Remove');
+   open.onclick=()=>{
+    choose(item.start,item.label);unit=item.unit;searchShape=item.shape;
+    options=[item.route];render();$('status').textContent='Saved route';$('map').scrollIntoView({block:'center'});
+   };
+   remove.onclick=()=>{
+    try{localStorage.setItem(savedKey,JSON.stringify(readSaved().filter(r=>r.id!==item.id)));listSaved();if(options.length)render()}
+    catch{list.append(el('p','Could not update saved routes on this device.'))}
+   };
+   row.append(open,remove);list.append(row);
+  }
+ }catch{list.append(el('p','Saved routes are unavailable in this browser.'))}
+}
+function saveButton(o,title){
+ const button=el('button','Save route');
+ button.onclick=async()=>{
+  const label=$('chosen').textContent,origin=start.slice(),shape=searchShape,displayUnit=unit;
+  try{
+   const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(o.points)));
+   const id=Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('');
+   const records=readSaved();
+   if(!records.some(r=>r.id===id)){
+    const route={points:o.points,distance:o.distance,name:o.name||title+' · '+label,kind:o.kind,credit:o.credit,url:o.url,fromStart:o.fromStart,crossings:o.crossings,evidence:o.evidence?{name:o.evidence.name,url:o.evidence.url}:null};
+    records.unshift({id,route,start:origin,label,shape,unit:displayUnit});
+    localStorage.setItem(savedKey,JSON.stringify(records));
+   }
+   button.textContent='Saved on this device';listSaved();
+  }catch{button.textContent='Could not save · download GPX instead'}
+ };
+ return button;
+}
+listSaved();
 function render(){const root=$('routes');root.replaceChildren();options.forEach((o,i)=>{const card=el('div');card.className='card';const b=el('button',fmt(o.distance)+' · '+(o.name||'Route '+(i+1)));b.onclick=()=>{show(i);$('map').scrollIntoView({behavior:'smooth',block:'center'})};card.append(b);
  const note=el('p');note.className='evidence';if(o.kind){note.append(o.kind+' · starts '+fmt(o.fromStart)+' away · ',link(o.credit,o.url));}else if(o.evidence){note.append('Passes within 75 m of ',link(o.evidence.name,o.evidence.url))}else note.textContent='Pedestrian route · running activity unverified';card.append(note);card.append(el('p',o.crossings==null?'Mapped crossing estimate unavailable':'Nearby mapped crossing visits: '+o.crossings));
  const title=routeTitle(o,i),file=routeFile(o.points,i,title,o.credit);
@@ -94,7 +161,7 @@ function render(){const root=$('routes');root.replaceChildren();options.forEach(
   };
   card.append(share);
  }
- card.append(download);
+ card.append(download,saveButton(o,title));
  root.append(card)});if(options.length)show(0)}
 $('planner').onsubmit=async e=>{e.preventDefault();if(!start){$('chosen').textContent='Use GPS, search for a place, or tap Pick on map first.';return}
  clearResults();const id=run,p=start.slice();unit=$('unit').value;const target=+$('distance').value*(unit==='mi'?1609.344:1000);
@@ -115,7 +182,7 @@ $('planner').onsubmit=async e=>{e.preventDefault();if(!start){$('chosen').textCo
  if(community.length){options=community;render();$('status').textContent='Showing nearby courses.'}
  const generated=[];
  let scale=1,errors=0;
- for(let k=0;k<7;k++){if(id!==run)return;$('status').textContent='Checking pedestrian paths · '+options.length+' found';try{
+ for(let k=0;k<7;k++){if(id!==run)return;$('status').textContent='Checking route '+(k+1)+' of 7 · '+(community.length+generated.length)+' candidates found';try{
  const o=await candidate(p,target,searchShape,initial+k*2.4,scale,items);if(id!==run)return;if(o){scale=Math.max(.55,Math.min(1.8,scale*target/o.distance));const near=Math.abs(o.distance-target)/target<=.22;
  if(near){o.crossings=crossingVisits(o.points,crossings.value);generated.push(o)}}}catch{errors++;if(errors>=3)break}if(k<6)await new Promise(resolve=>setTimeout(resolve,1100))}
  if(id!==run)return;generated.sort((a,b)=>(a.crossings??Infinity)-(b.crossings??Infinity)||Number(!!b.evidence)-Number(!!a.evidence)||Math.abs(a.distance-target)-Math.abs(b.distance-target));const best=[];for(const route of generated){if(best.every(other=>{let shared=0;for(const c of route.cells)if(other.cells.has(c))shared++;return shared/Math.min(route.cells.size,other.cells.size)<.72}))best.push(route);if(best.length===3)break}options=community.concat(best);render();busy=false;$('find').disabled=false;
