@@ -45,7 +45,7 @@ function tripaceLink(points,title){
 }
 const isAndroid=/Android/i.test(navigator.userAgent);
 const conventionCourses=conventionRoutes.map(route=>{
- const outward=decode(route.shape);
+ const outward=route.line||decode(route.shape);
  const line=outward.concat(outward.slice(0,-1).reverse());
  return {city:route.city,venue:route.venue,line,name:route.dest+' out & back',kind:'Planned from '+route.venue,credit:'Local running guide',url:route.source};
 });
@@ -62,7 +62,7 @@ citySelect.onchange=()=>{
  unit=$('unit').value;
  options=routes.map(course=>({...course,fromStart:meters(first.line[0],course.line[0]),points:course.line,distance:lengthOf(course.line)}));
  render();
- $('status').textContent=city+' convention district · planned pedestrian routes. Check current crossings and access.';
+ $('status').textContent=city+' · planned pedestrian routes. Check current crossings and access.';
  $('routes').scrollIntoView({behavior:'smooth',block:'nearest'});
  citySelect.value='';
 };
