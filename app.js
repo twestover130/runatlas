@@ -44,6 +44,28 @@ function tripaceLink(points,title){
   +'#Intent;scheme=tripace;package=app.tripace;S.browser_fallback_url='+encodeURIComponent('https://play.google.com/store/apps/details?id=app.tripace')+';end';
 }
 const isAndroid=/Android/i.test(navigator.userAgent);
+const conventionCourses=conventionRoutes.map(route=>{
+ const outward=decode(route.shape);
+ const line=outward.concat(outward.slice(0,-1).reverse());
+ return {city:route.city,venue:route.venue,line,name:route.dest+' out & back',kind:'Planned from '+route.venue,credit:'Local running guide',url:route.source};
+});
+const citySelect=$('convention-city');
+for(const city of [...new Set(conventionCourses.map(course=>course.city))].sort()){
+ citySelect.add(new Option(city,city));
+}
+citySelect.onchange=()=>{
+ const city=citySelect.value;
+ const routes=conventionCourses.filter(course=>course.city===city);
+ if(!routes.length)return;
+ const first=routes[0];
+ choose(first.line[0],first.venue);
+ unit=$('unit').value;
+ options=routes.map(course=>({...course,fromStart:meters(first.line[0],course.line[0]),points:course.line,distance:lengthOf(course.line)}));
+ render();
+ $('status').textContent=city+' convention district · planned pedestrian routes. Check current crossings and access.';
+ $('routes').scrollIntoView({behavior:'smooth',block:'nearest'});
+ citySelect.value='';
+};
 function render(){const root=$('routes');root.replaceChildren();options.forEach((o,i)=>{const card=el('div');card.className='card';const b=el('button',fmt(o.distance)+' · '+(o.name||'Route '+(i+1)));b.onclick=()=>{show(i);$('map').scrollIntoView({behavior:'smooth',block:'center'})};card.append(b);
  const note=el('p');note.className='evidence';if(o.kind){note.append(o.kind+' · starts '+fmt(o.fromStart)+' away · ',link(o.credit,o.url));}else if(o.evidence){note.append('Passes within 75 m of ',link(o.evidence.name,o.evidence.url))}else note.textContent='Pedestrian route · running activity unverified';card.append(note);card.append(el('p',o.crossings==null?'Mapped crossing estimate unavailable':'Nearby mapped crossing visits: '+o.crossings));
  const title=routeTitle(o,i),file=routeFile(o.points,i,title,o.credit);
@@ -89,7 +111,7 @@ $('planner').onsubmit=async e=>{e.preventDefault();if(!start){$('chosen').textCo
  const anchor=items.find(x=>meters(p,x.closest)>100&&meters(p,x.closest)<target*.6)?.closest;
  const initial=anchor?Math.atan2((anchor[1]-p[1])*Math.cos(p[0]*rad),anchor[0]-p[0]):Math.PI/5;
  const recorded=(catalog.value||[]).map(r=>({name:r.name,line:r.points,url:r.source,credit:'kekomat · CC0 GPX',kind:'Recorded race track'}));
- const community=nearbyCourses(p,target,(parkruns.value?.routes||[]).map(r=>({...r,line:r.points,credit:'© OpenStreetMap contributors · ODbL'})).concat(items,recorded),crossings.value);
+ const community=nearbyCourses(p,target,(parkruns.value?.routes||[]).map(r=>({...r,line:r.points,credit:'© OpenStreetMap contributors · ODbL'})).concat(items,recorded,searchShape==='back'?conventionCourses:[]),crossings.value);
  if(community.length){options=community;render();$('status').textContent='Showing nearby courses.'}
  const generated=[];
  let scale=1,errors=0;
