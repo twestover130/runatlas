@@ -36,18 +36,18 @@ function mappedRunningLine(relation){
  }
  return assemble(false)||assemble(true);
 }
-function nearbyCourses(start,target,entries,crossings){
+function nearbyCourses(start,target,entries,crossings,relaxed=false){
  const matches=[];
  for(const entry of entries){
   if(!entry.line?.length)continue;
   const fromStart=meters(start,entry.line[0]);
   if(fromStart>10000)continue;
   const distance=lengthOf(entry.line);
-  if(Math.abs(distance-target)>target*.35)continue;
+  if(!relaxed&&Math.abs(distance-target)>target*.35)continue;
   if(matches.some(m=>m.name===entry.name&&meters(m.points[0],entry.line[0])<250))continue;
   matches.push({...entry,points:entry.line,fromStart,distance,crossings:crossingVisits(entry.line,crossings)});
  }
- return matches.sort((a,b)=>(a.crossings??Infinity)-(b.crossings??Infinity)||Math.abs(a.distance-target)-Math.abs(b.distance-target)||a.fromStart-b.fromStart).slice(0,3);
+ return matches.sort((a,b)=>(relaxed?Math.abs(a.distance-target)-Math.abs(b.distance-target):0)||(a.crossings??Infinity)-(b.crossings??Infinity)||Math.abs(a.distance-target)-Math.abs(b.distance-target)||a.fromStart-b.fromStart).slice(0,3);
 }
 async function courses(p,target){
  const around='(around:'+Math.round(Math.min(7000,target/2+350))+','+p.join(',')+')';
