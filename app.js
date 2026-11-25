@@ -48,7 +48,7 @@ const isAndroid=/Android/i.test(navigator.userAgent);
 const conventionCourses=conventionRoutes.map(route=>{
  const outward=route.line||decode(route.shape);
  const line=outward.concat(outward.slice(0,-1).reverse());
- return {city:route.city,venue:route.venue,line,name:route.dest+' out & back',kind:'Planned from '+route.venue,credit:'Local running guide',url:route.source};
+ return {city:route.city,mapIds:route.mapIds,venue:route.venue,line,name:route.dest+' out & back',kind:'Planned from '+route.venue,credit:'Local running guide',url:route.source};
 });
 const citySelect=$('convention-city');
 for(const city of [...new Set(conventionCourses.map(course=>course.city))].sort()){
@@ -123,7 +123,7 @@ function saveButton(o,title){
    const id=Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('');
    const records=readSaved();
    if(!records.some(r=>r.id===id)){
-    const route={points:o.points,distance:o.distance,shape:o.shape,name:o.name||title+' · '+label,kind:o.kind,credit:o.credit,url:o.url,fromStart:o.fromStart,crossings:o.crossings,evidence:o.evidence?{name:o.evidence.name,url:o.evidence.url}:null};
+    const route={points:o.points,distance:o.distance,shape:o.shape,name:o.name||title+' · '+label,kind:o.kind,credit:o.credit,url:o.url,mapIds:o.mapIds,fromStart:o.fromStart,crossings:o.crossings,evidence:o.evidence?{name:o.evidence.name,url:o.evidence.url}:null};
     records.unshift({id,route,start:origin,label,shape,unit:displayUnit});
     localStorage.setItem(savedKey,JSON.stringify(records));
    }
@@ -133,8 +133,38 @@ function saveButton(o,title){
  return button;
 }
 listSaved();
+function parseGpx(text,filename){
+ const doc=new DOMParser().parseFromString(text,'application/xml');
+ if(doc.documentElement.localName!=='gpx')throw Error('Choose a valid GPX file.');
+ const segments=Array.from(doc.getElementsByTagNameNS('*','trkseg'));
+ const paths=segments.length?segments:Array.from(doc.getElementsByTagNameNS('*','rte'));
+ if(paths.length!==1)throw Error('Choose a file with one continuous track or route.');
+ const path=paths[0],tag=segments.length?'trkpt':'rtept';
+ const points=Array.from(path.children).filter(n=>n.localName===tag).map(n=>{
+  const lat=n.getAttribute('lat'),lon=n.getAttribute('lon');
+  if(!lat?.trim()||!lon?.trim()||!Number.isFinite(+lat)||!Number.isFinite(+lon)||Math.abs(+lat)>90||Math.abs(+lon)>180)throw Error('The GPX contains invalid coordinates.');
+  return [+lat,+lon];
+ });
+ const distance=lengthOf(points);
+ if(points.length<2||!distance)throw Error('This file has no usable route path.');
+ const parent=segments.length?path.parentNode:path;
+ const name=Array.from(parent.children).find(n=>n.localName==='name')?.textContent.trim()||filename.replace(/\.gpx$/i,'');
+ return {name,points,distance,fromStart:0,kind:'Imported GPX',credit:'Personal file'};
+}
+$('import-gpx').onchange=async event=>{
+ const file=event.target.files[0];if(!file)return;
+ try{
+  if(file.size>12*1024*1024)throw Error('Choose a GPX file smaller than 12 MB.');
+  const route=parseGpx(await file.text(),file.name);
+  choose(route.points[0],route.name);unit=$('unit').value;
+  options=[route];render();$('status').textContent='Imported route · '+fmt(route.distance);
+  $('import-status').textContent='Route opened. Select Save route to keep it.';
+  $('map').scrollIntoView({block:'center'});
+ }catch(error){$('import-status').textContent=error.message}
+ event.target.value='';
+};
 function render(){const root=$('routes');root.replaceChildren();options.forEach((o,i)=>{const card=el('div');card.className='card';const b=el('button',fmt(o.distance)+' · '+(o.name||'Route '+(i+1)));b.onclick=()=>{show(i);$('map').scrollIntoView({behavior:'smooth',block:'center'})};card.append(b);
- const note=el('p');note.className='evidence';if(o.kind){note.append(o.kind+' · starts '+fmt(o.fromStart)+' away · ',link(o.credit,o.url));}else if(o.evidence){note.append('Passes within 75 m of ',link(o.evidence.name,o.evidence.url))}else note.textContent='Pedestrian route · running activity unverified';card.append(note);card.append(el('p',o.crossings==null?'Mapped crossing estimate unavailable':'Nearby mapped crossing visits: '+o.crossings));
+ const note=el('p');note.className='evidence';if(o.kind){note.append(o.kind+' · starts '+fmt(o.fromStart)+' away · ',o.url?link(o.credit,o.url):(o.credit||''));}else if(o.evidence){note.append('Passes within 75 m of ',link(o.evidence.name,o.evidence.url))}else note.textContent='Pedestrian route · running activity unverified';card.append(note);for(const [j,id] of (o.mapIds||[]).entries()){card.append(link('Guide map on MapMyRun'+(o.mapIds.length>1?' '+(j+1):''),'https://www.mapmyrun.com/routes/view/'+id))}card.append(el('p',o.crossings==null?'Mapped crossing estimate unavailable':'Nearby mapped crossing visits: '+o.crossings));
  const title=routeTitle(o,i),file=routeFile(o.points,i,title,o.credit);
  if(isAndroid && tripaceLink(o.points,title).length<12000){const open=el('a','Open in Tripace Pro');open.className='tripace';open.href=tripaceLink(o.points,title);card.append(open)}
  const download=el('a','Download GPX');
