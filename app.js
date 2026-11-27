@@ -4,6 +4,48 @@ const overlay=L.layerGroup().addTo(map);
 let start=null,marker=null,picking=false,run=0,locationRequest=0,options=[],unit='mi',searchShape='loop',busy=false;
 function el(tag,txt){const n=document.createElement(tag);if(txt)n.textContent=txt;return n}
 function link(label,url){const a=el('a',label);a.href=url;a.target='_blank';a.rel='noopener noreferrer';return a}
+const liveLayer=L.layerGroup().addTo(map);
+let runningMap=false,followRunner=true,watchId=null,lastFix=null,dot=null,accuracyRing=null,wakeLock=null;
+async function keepMapAwake(){
+ if(!runningMap||document.hidden||wakeLock||!navigator.wakeLock)return;
+ try{
+  const lock=await navigator.wakeLock.request('screen');
+  if(!runningMap||wakeLock){await lock.release();return}
+  wakeLock=lock;lock.addEventListener('release',()=>{if(wakeLock===lock)wakeLock=null});
+ }catch{}
+}
+document.addEventListener('visibilitychange',keepMapAwake);
+map.on('dragstart',()=>{if(runningMap)followRunner=false});
+function refreshMapSize(){requestAnimationFrame(()=>map.invalidateSize({pan:false}))}
+$('start-run-map').onclick=()=>{
+ if(runningMap)return;
+ runningMap=true;followRunner=true;lastFix=null;
+ if(busy){run++;busy=false;$('find').disabled=false}
+ document.body.classList.add('running');$('run-controls').hidden=false;
+ $('gps-status').textContent='Locating you…';refreshMapSize();keepMapAwake();
+ const session=++locationRequest;
+ if(!navigator.geolocation){$('gps-status').textContent='Location unavailable. Pan the map to follow your route.';return}
+ watchId=navigator.geolocation.watchPosition(position=>{
+  if(!runningMap||session!==locationRequest)return;
+  const {latitude,longitude,accuracy}=position.coords,first=!lastFix;
+  lastFix=[latitude,longitude];
+  if(!dot){
+   accuracyRing=L.circle(lastFix,{radius:accuracy,stroke:false,color:'#2675df',fillOpacity:.12}).addTo(liveLayer);
+   dot=L.circleMarker(lastFix,{radius:8,color:'#fff',weight:3,fillColor:'#1764d6',fillOpacity:1}).addTo(liveLayer);
+  }else{dot.setLatLng(lastFix);accuracyRing.setLatLng(lastFix).setRadius(accuracy)}
+  if(followRunner)map.setView(lastFix,first?17:map.getZoom(),{animate:false});
+  $('gps-status').textContent='GPS accuracy ±'+Math.round(accuracy)+' m';
+ },error=>{
+  if(runningMap&&session===locationRequest)$('gps-status').textContent=error.code===1?'Allow location in site settings to see your position.':'GPS signal unavailable. Your map is still open.';
+ },{enableHighAccuracy:true,maximumAge:2000,timeout:15000});
+};
+$('recenter').onclick=()=>{followRunner=true;if(lastFix)map.setView(lastFix,17,{animate:false})};
+$('exit-run').onclick=()=>{
+ runningMap=false;if(watchId!==null)navigator.geolocation.clearWatch(watchId);watchId=null;
+ liveLayer.clearLayers();lastFix=null;dot=null;accuracyRing=null;
+ if(wakeLock){wakeLock.release().catch(()=>{});wakeLock=null}
+ document.body.classList.remove('running');$('run-controls').hidden=true;refreshMapSize();$('start-run-map').focus();
+};
 function clearResults(){run++;busy=false;$('find').disabled=false;options=[];overlay.clearLayers();$('routes').replaceChildren();$('sources').replaceChildren();$('status').textContent='Set your starting point and distance to see routes here.'}
 function choose(p,label){clearResults();locationRequest++;start=p;picking=false;$('chosen').textContent=label;$('places').replaceChildren();$('mapstate').textContent='Start selected';map.setView(p,15);if(marker)marker.remove();marker=L.circleMarker(p,{radius:7,color:'#163a31',fillColor:'#fac47c',weight:3,fillOpacity:1}).bindTooltip('Start / finish').addTo(map)}
 $('pick').onclick=()=>{picking=true;$('mapstate').textContent='Tap your starting point';$('map').scrollIntoView({behavior:'smooth',block:'center'})};
